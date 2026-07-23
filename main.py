@@ -93,8 +93,8 @@ def modal_editar_vaga(vaga):
         empresa = st.text_input("Empresa", value=vaga['empresa'])
         cargo = st.text_input("Cargo", value=vaga['cargo'])
         status = st.selectbox("Status", options=status_opcoes, index=idx_status)
-        link = st.text_input("Link da Vaga", value=vaga.get('link', '') or vaga.get('link_vaga', ''))
-        anotacoes = st.text_area("Anotações / Tags", value=vaga.get('tags', '') or vaga.get('anotacoes', ''))
+        link = st.text_input("Link da Vaga", value=str(vaga.get('link') or vaga.get('link_vaga') or ''))
+        anotacoes = st.text_area("Anotações / Tags", value=str(vaga.get('tags') or vaga.get('anotacoes') or ''))
 
         if st.form_submit_button("Salvar Alterações"):
             db.atualizar_vaga(vaga['id'], empresa, cargo, status, link, anotacoes)
@@ -176,23 +176,10 @@ with st.sidebar:
         st.session_state.user_info = None
         st.rerun()
 
-# Campo global/filtro de busca para consultar vagas do usuário
 termo_busca = st.sidebar.text_input("🔍 Busca Rápida de Vagas", placeholder="Cargo ou Empresa...")
 
-# Busca dados do usuário logado considerando o filtro de busca se a função suportar ou via Pandas
-if hasattr(db, 'listar_vagas_usuario'):
-    vagas_raw = db.listar_vagas_usuario(current_user["id"], busca=termo_busca)
-else:
-    vagas_raw = db.buscar_vagas_usuario(current_user["id"])
-
+vagas_raw = db.listar_vagas_usuario(current_user["id"], busca=termo_busca)
 df_vagas = pd.DataFrame(vagas_raw) if vagas_raw else pd.DataFrame(columns=["id", "empresa", "cargo", "salario", "status", "tags", "data_aplicacao", "link"])
-
-# Filtro via Pandas caso a busca seja feita no dataframe local
-if not df_vagas.empty and termo_busca and not hasattr(db, 'listar_vagas_usuario'):
-    df_vagas = df_vagas[
-        df_vagas['empresa'].str.contains(termo_busca, case=False, na=False) | 
-        df_vagas['cargo'].str.contains(termo_busca, case=False, na=False)
-    ]
 
 # ==========================================
 # 4. PAINÉIS / PÁGINAS
@@ -244,7 +231,6 @@ elif menu == "📋 Quadro Kanban":
         {"nome": "Proposta", "cor": "#10b981", "bg": "rgba(16, 185, 129, 0.15)"}
     ]
     cols = st.columns(len(fases))
-    
     status_opcoes = ["Aplicado", "Triagem", "Entrevista", "Proposta", "Rejeitado"]
 
     for idx, fase in enumerate(fases):
@@ -260,7 +246,7 @@ elif menu == "📋 Quadro Kanban":
                         <div class="kanban-card" style="border-left-color: {fase['cor']};">
                             <h4 style="margin:0;">{job['empresa']}{link_icon}</h4>
                             <p style="margin:4px 0; color:#94a3b8;">🏢 <b>{job['cargo']}</b></p>
-                            <p style="font-size:12px; color:#64748b;">📅 {job.get('data_aplicacao', job.get('data_candidatura', 'N/A'))}</p>
+                            <p style="font-size:12px; color:#64748b;">📅 {job.get('data_aplicacao', 'N/A')}</p>
                         </div>
                     ''', unsafe_allow_html=True)
                     
@@ -276,11 +262,11 @@ elif menu == "📋 Quadro Kanban":
                         if novo_st != job['status']:
                             db.atualizar_vaga(
                                 vaga_id=job['id'],
-                                empresa=job['empresa'],
-                                cargo=job['cargo'],
+                                empresa=str(job['empresa']),
+                                cargo=str(job['cargo']),
                                 status=novo_st,
-                                link=job.get('link', '') or job.get('link_vaga', ''),
-                                anotacoes=job.get('tags', '') or job.get('anotacoes', '')
+                                link=str(job.get('link') or job.get('link_vaga') or ''),
+                                anotacoes=str(job.get('tags') or job.get('anotacoes') or '')
                             )
                             st.toast(f"Movido para {novo_st}!")
                             st.rerun()
@@ -308,8 +294,7 @@ elif menu == "➕ Nova Candidatura":
             if not empresa or not cargo:
                 st.warning("Preencha os campos obrigatórios (Empresa e Cargo).")
             else:
-                # Checagem de Duplicados direcionada ao usuário logado
-                duplicado = db.verificar_duplicado(current_user["id"], empresa, cargo) if hasattr(db, 'verificar_duplicado') else None
+                duplicado = db.verificar_duplicado(current_user["id"], empresa, cargo)
                 if duplicado:
                     st.error(f"⚠️ **Atenção:** Você já cadastrou a vaga de '{cargo}' na '{empresa}' em {duplicado[1]}. Status atual: **{duplicado[0]}**.")
                 else:
