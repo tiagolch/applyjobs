@@ -140,3 +140,10 @@ def atualizar_status_vaga(usuario_id, vaga_id, novo_status):
                 (novo_status, vaga_id, usuario_id)
             )
             conn.commit()
+
+def deletar_vaga(vaga_id: int, usuario_id: int):
+    """Deleta uma vaga do banco de dados garantindo que pertença ao usuário logado."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM vagas WHERE id = %s AND usuario_id = %s;", (vaga_id, usuario_id))
+            conn.commit()

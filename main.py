@@ -101,6 +101,22 @@ def modal_editar_vaga(vaga):
             st.toast("✅ Candidatura atualizada com sucesso!")
             st.rerun()
 
+# Modal de Confirmação de Exclusão
+@st.dialog("⚠️ Confirmar Exclusão")
+def modal_deletar_vaga(vaga_id, empresa, cargo, user_id):
+    st.write(f"Tem certeza que deseja excluir permanentemente a vaga de **{cargo}** na empresa **{empresa}**?")
+    st.warning("Esta ação não poderá ser desfeita.")
+    
+    col_sim, col_nao = st.columns(2)
+    with col_sim:
+        if st.button("🗑️ Sim, Excluir", use_container_width=True):
+            db.deletar_vaga(vaga_id, user_id)
+            st.toast("🗑️ Vaga excluída com sucesso!")
+            st.rerun()
+    with col_nao:
+        if st.button("Cancelar", use_container_width=True):
+            st.rerun()
+
 # ==========================================
 # 2. SISTEMA DE LOGIN E CADASTRO
 # ==========================================
@@ -167,7 +183,7 @@ with st.sidebar:
 
     menu = st.radio(
         "Navegação",
-        ["📊 Dashboard", "📋 Quadro Kanban", "➕ Nova Candidatura", "✨ Otimizador ATS"],
+        ["📊 Dashboard", "📋 Quadro Kanban", "❌ Vagas Rejeitadas", "➕ Nova Candidatura", "✨ Otimizador ATS"],
         index=0
     )
 
@@ -250,7 +266,7 @@ elif menu == "📋 Quadro Kanban":
                         </div>
                     ''', unsafe_allow_html=True)
                     
-                    c_sel, c_edit = st.columns([3, 1])
+                    c_sel, c_edit, c_del = st.columns([3, 1, 1])
                     with c_sel:
                         novo_st = st.selectbox(
                             "Mover",
@@ -272,8 +288,49 @@ elif menu == "📋 Quadro Kanban":
                             st.rerun()
 
                     with c_edit:
-                        if st.button("✏️", key=f"btn_edit_card_{job['id']}", help="Editar ou ver detalhes"):
+                        if st.button("✏️", key=f"btn_edit_card_{job['id']}", help="Editar detalhes"):
                             modal_editar_vaga(job.to_dict())
+
+                    with c_del:
+                        if st.button("🗑️", key=f"btn_del_card_{job['id']}", help="Excluir vaga"):
+                            modal_deletar_vaga(job['id'], job['empresa'], job['cargo'], current_user['id'])
+
+elif menu == "❌ Vagas Rejeitadas":
+    st.markdown("<h1 style='font-family: Plus Jakarta Sans;'>Candidaturas Rejeitadas</h1>", unsafe_allow_html=True)
+    st.write("Histórico de candidaturas finalizadas e arquivadas.")
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    vagas_rej = df_vagas[df_vagas['status'] == 'Rejeitado'] if not df_vagas.empty else pd.DataFrame()
+
+    if vagas_rej.empty:
+        st.info("Nenhuma candidatura com status 'Rejeitado' encontrada.")
+    else:
+        st.caption(f"Total de registros: **{len(vagas_rej)}**")
+        
+        for _, job in vagas_rej.iterrows():
+            with st.container():
+                col_info, col_actions = st.columns([4, 1])
+                
+                with col_info:
+                    link_url = job.get('link') or job.get('link_vaga') or ''
+                    link_icon = f' <a href="{link_url}" target="_blank" style="text-decoration:none; font-size:14px;">🔗 Acessar Vaga</a>' if link_url else ''
+                    
+                    st.markdown(f"""
+                    <div style="background-color: #1e293b; padding: 16px; border-radius: 10px; border-left: 4px solid #ef4444; margin-bottom: 12px;">
+                        <h3 style="margin:0; color:#f8fafc;">{job['empresa']} - <span style="color:#94a3b8;">{job['cargo']}</span></h3>
+                        <p style="margin:6px 0 0 0; font-size:13px; color:#64748b;">📅 Data de Aplicação: <b>{job.get('data_aplicacao', 'N/A')}</b> | {link_icon}</p>
+                        <p style="margin:6px 0 0 0; font-size:13px; color:#94a3b8;">🏷️ <b>Tags/Anotações:</b> {job.get('tags') or 'Nenhuma anotação'}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col_actions:
+                    c_edit, c_del = st.columns(2)
+                    with c_edit:
+                        if st.button("✏️", key=f"btn_edit_rej_{job['id']}", help="Editar ou reativar vaga"):
+                            modal_editar_vaga(job.to_dict())
+                    with c_del:
+                        if st.button("🗑️", key=f"btn_del_rej_{job['id']}", help="Excluir vaga permanentemente"):
+                            modal_deletar_vaga(job['id'], job['empresa'], job['cargo'], current_user['id'])
 
 elif menu == "➕ Nova Candidatura":
     st.markdown("<h1 style='font-family: Plus Jakarta Sans;'>Cadastrar Nova Vaga</h1>", unsafe_allow_html=True)
@@ -284,7 +341,7 @@ elif menu == "➕ Nova Candidatura":
             cargo = st.text_input("Cargo *")
             salario = st.text_input("Faixa Salarial")
         with c2:
-            status = st.selectbox("Status Inicial", ["Aplicado", "Triagem", "Entrevista", "Proposta"])
+            status = st.selectbox("Status Inicial", ["Aplicado", "Triagem", "Entrevista", "Proposta", "Rejeitado"])
             data_app = st.date_input("Data de Aplicação", value=datetime.now())
             link = st.text_input("Link da Vaga")
             tags = st.text_input("Tags (ex: Python, Remote)")
