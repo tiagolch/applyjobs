@@ -1,0 +1,13 @@
+```eof
+
+### ⚙️ Arquivo de Configuração Nativo do Streamlit (`.streamlit/config.toml`)
+
+Para garantir que a barra lateral, os spinners, caixas de diálogo e os componentes nativos utilizem nativamente a paleta de cores escura do CareerSync sem piscar a tela no carregamento, você pode criar uma pasta `.streamlit` na raiz do projeto e incluir o arquivo `config.toml` abaixo:
+
+```toml
+[theme]
+primaryColor = "#38bdf8"
+backgroundColor = "#2f3033"
+secondaryBackgroundColor = "#1e293b"
+textColor = "#f8fafc"
+font = "sans serif"
