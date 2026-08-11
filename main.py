@@ -1,10 +1,32 @@
-import streamlit as st
+import json
+import os
+from datetime import datetime
+
+import bcrypt
+import database as db
 import pandas as pd
 import plotly.express as px
-from datetime import datetime
+import streamlit as st
 import streamlit_authenticator as stauth
-import database as db
-import bcrypt
+from google import genai
+from google.genai import types
+from pypdf import PdfReader
+
+# ==========================================
+# 0. FUNÇÕES AUXILIARES
+# ==========================================
+def extrair_texto_pdf(uploaded_file) -> str:
+    """Lê um ficheiro PDF carregado pelo Streamlit e extrai o texto contido."""
+    try:
+        reader = PdfReader(uploaded_file)
+        texto = ""
+        for page in reader.pages:
+            conteudo = page.extract_text()
+            if conteudo:
+                texto += conteudo + "\n"
+        return texto.strip()
+    except Exception:
+        return ""
 
 # ==========================================
 # 1. INICIALIZAÇÃO DO BANCO & CONFIGURAÇÃO
@@ -359,5 +381,126 @@ elif menu == "➕ Nova Candidatura":
                     st.success(f"Vaga de **{cargo}** na **{empresa}** cadastrada com sucesso!")
 
 elif menu == "✨ Otimizador ATS":
-    st.markdown("<h1 style='font-family: Plus Jakarta Sans;'>Otimizador ATS</h1>", unsafe_allow_html=True)
-    st.info("Em breve: Integração nativa com LLM para comparação do seu CV com os requisitos da vaga.")
+    st.markdown("<h1 style='font-family: Plus Jakarta Sans;'>✨ Otimizador ATS com Google Gemini</h1>", unsafe_allow_html=True)
+    st.write("Compare o seu currículo com a descrição da vaga para identificar palavras-chave em falta e aumentar a sua taxa de resposta.")
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Configuração da Chave de API do Gemini (Secrets do Streamlit ou Variáveis de Ambiente)
+    api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
+
+    if not api_key:
+        st.warning("⚠️ Chave de API do Gemini não configurada. Adicione 'GEMINI_API_KEY' aos secrets do Streamlit.")
+
+    col_input_left, col_input_right = st.columns(2)
+
+    with col_input_left:
+        st.subheader("1. Seu Currículo (CV)")
+        metodo_cv = st.radio("Como deseja fornecer seu CV?", ["Upload de PDF", "Colar Texto"], horizontal=True)
+        
+        texto_cv = ""
+        if metodo_cv == "Upload de PDF":
+            cv_file = st.file_uploader("Carregue o seu CV em PDF", type=["pdf"])
+            if cv_file:
+                texto_cv = extrair_texto_pdf(cv_file)
+                if texto_cv:
+                    st.success(f"✅ PDF lido com sucesso ({len(texto_cv)} caracteres extraídos).")
+                else:
+                    st.error("Não foi possível extrair texto do PDF. Tente colar o texto manualmente.")
+        else:
+            texto_cv = st.text_area("Cole o texto completo do seu CV aqui", height=300, placeholder="Cole a sua experiência, tecnologias e formação...")
+
+    with col_input_right:
+        st.subheader("2. Descrição da Vaga (Job Description)")
+        descricao_vaga = st.text_area("Cole a descrição da vaga/anúncio", height=350, placeholder="Cole os requisitos, responsabilidades e qualificações da vaga...")
+
+    st.markdown("---")
+    btn_analisar = st.button("🚀 Analisar Compatibilidade ATS", use_container_width=True, disabled=not api_key)
+
+    if btn_analisar:
+        if not texto_cv.strip():
+            st.warning("Por favor, forneça o texto do seu Currículo.")
+        elif not descricao_vaga.strip():
+            st.warning("Por favor, forneça a Descrição da Vaga.")
+        else:
+            with st.spinner("🤖 O Gemini está a analisar o seu CV..."):
+                try:
+                    # Inicialização do cliente Gemini
+                    client = genai.Client(api_key=api_key)
+
+                    prompt_sistema = """
+                    Você é um especialista em recrutamento executivo e sistemas ATS (Applicant Tracking Systems).
+                    Sua tarefa é comparar o Currículo de um candidato com a Descrição de uma Vaga de emprego.
+
+                    Você DEVE responder ESTRITAMENTE em formato JSON com a seguinte estrutura de chaves:
+                    {
+                      "score": <número inteiro de 0 a 100>,
+                      "resumo_analise": "<uma frase resumindo a adequação>",
+                      "pontos_fortes": ["<ponto 1>", "<ponto 2>", ...],
+                      "palavras_chave_faltando": ["<termo 1>", "<termo 2>", ...],
+                      "sugestoes_melhoria": ["<sugestão prática 1>", "<sugestão prática 2>", ...]
+                    }
+                    """
+
+                    prompt_usuario = f"""
+                    --- CURRÍCULO DO CANDIDATO ---
+                    {texto_cv}
+
+                    --- DESCRIÇÃO DA VAGA ---
+                    {descricao_vaga}
+                    """
+
+                    # Modelo atualizado para gemini-2.5-flash
+                    response = client.models.generate_content(
+                        model="gemini-3.5-flash",
+                        contents=prompt_usuario,
+                        config=types.GenerateContentConfig(
+                            system_instruction=prompt_sistema,
+                            response_mime_type="application/json",
+                            temperature=0.3
+                        )
+                    )
+
+                    resultado = json.loads(response.text)
+
+                    # Exibição dos Resultados
+                    st.markdown("## 📊 Resultado da Análise")
+
+                    score = resultado.get("score", 0)
+                    
+                    col_score, col_resumo = st.columns([1, 3])
+                    with col_score:
+                        st.metric(label="Match de Compatibilidade", value=f"{score}%")
+                        if score >= 80:
+                            st.success("🔥 Excelente alinhamento!")
+                        elif score >= 60:
+                            st.warning("🟡 Bom alinhamento com ajustes necessários.")
+                        else:
+                            st.error("🔴 Baixa compatibilidade inicial.")
+                    
+                    with col_resumo:
+                        st.markdown(f"**Resumo:** {resultado.get('resumo_analise', '')}")
+
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    res_col1, res_col2 = st.columns(2)
+
+                    with res_col1:
+                        st.subheader("✅ Pontos Fortes Identificados")
+                        for pt in resultado.get("pontos_fortes", []):
+                            st.markdown(f"- {pt}")
+
+                        st.subheader("💡 Sugestões Práticas de Melhoria")
+                        for sug in resultado.get("sugestoes_melhoria", []):
+                            st.markdown(f"- {sug}")
+
+                    with res_col2:
+                        st.subheader("⚠️ Palavras-Chave Faltando no CV")
+                        st.caption("Termos importantes na vaga que não foram encontrados ou destacados no seu CV:")
+                        kw_faltando = resultado.get("palavras_chave_faltando", [])
+                        if kw_faltando:
+                            badges_html = " ".join([f'<span style="background-color: rgba(239, 68, 68, 0.15); color: #f87171; padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: 600; display: inline-block; margin: 3px;">{kw}</span>' for kw in kw_faltando])
+                            st.markdown(badges_html, unsafe_allow_html=True)
+                        else:
+                            st.info("Nenhuma palavra-chave crítica em falta identificada!")
+
+                except Exception as e:
+                    st.error(f"Erro ao processar análise com o Gemini: {e}")
